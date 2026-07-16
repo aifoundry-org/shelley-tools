@@ -1,0 +1,10 @@
+#!/bin/bash
+# rbrowser wrapper — runs rbrowser.py inside its virtualenv.
+set -e
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+VENV="${RBROWSER_VENV:-$HERE/.venv}"
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "rbrowser: no virtualenv at $VENV—run $HERE/install.sh first" >&2
+  exit 1
+fi
+exec "$VENV/bin/python" "$HERE/rbrowser.py" "$@"
