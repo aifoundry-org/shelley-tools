@@ -11,21 +11,64 @@ reaching resources outside its VM, etc.
 |---|---|
 | [`rbrowser/`](./rbrowser) | Lets Shelley drive **your** local Chrome (navigate, click, type, screenshot) via Chrome DevTools Protocol tunneled over SSH. No browser extension required. |
 
-## Layout
+## Installing a tool
 
-Each tool lives in its own top-level directory and includes:
-- A `README.md` with a **TL;DR** setup section and full usage docs.
-- Any scripts, code, or configuration needed on the VM.
-- A skill file (`*.skill.md`) that another Shelley session can read to get full
-  context on how to use the tool.
+Every tool in this repo follows the same convention: it ships a top-level
+`install.sh` that sets everything up on the VM. To install any tool:
+
+```sh
+git clone git@github.com:nekkoai/shelley-tools.git
+cd shelley-tools/<tool>
+./install.sh
+```
+
+The installer is responsible for:
+
+1. Installing whatever runtime / dependencies the tool needs (venv, npm, etc.).
+2. Symlinking any user-facing binaries into `/usr/local/bin` (via `sudo` if needed).
+3. **Registering the Shelley skill** so future Shelley sessions on the VM
+   auto-activate the tool by description matching. Concretely, this means
+   copying `<tool>.skill.md` to `~/.config/shelley/<tool>/SKILL.md`.
+4. Printing any remaining manual steps (e.g. local-side setup the user
+   still has to do on their laptop).
+
+A well-behaved `install.sh` is idempotent: running it twice does nothing bad.
+
+## Layout convention
+
+Each tool lives in its own top-level directory with this layout:
+
+```
+<tool>/
+├── README.md            # human docs; TL;DR setup section at the top
+├── install.sh           # idempotent installer (see above)
+├── <tool>.skill.md      # Shelley skill file (front-matter + body)
+└── …                    # scripts, code, config the tool needs
+```
+
+The skill file has YAML front-matter:
+
+```markdown
+---
+name: <tool>
+description: Use when … (concise, action-oriented, so Shelley matches on it).
+---
+
+# Body: full context a fresh Shelley session needs to use the tool.
+```
+
+See [`rbrowser/`](./rbrowser) for a fully worked example.
 
 ## Adding a new tool
 
-1. Create a new top-level directory named after the tool.
-2. Add a `README.md` with a TL;DR at the top.
-3. Add a `*.skill.md` file that a fresh Shelley session can read to bootstrap
-   its understanding of the tool.
-4. Update this top-level README with a one-liner in the table above.
+1. Copy the structure of an existing tool (start from `rbrowser/`).
+2. Write a `README.md` with a **TL;DR** section covering both remote (VM)
+   and local (user's machine) setup, if applicable.
+3. Write a `<tool>.skill.md` that a fresh Shelley session can read to
+   bootstrap full understanding. Include: what it is, prerequisites,
+   command reference, recipes, gotchas, troubleshooting.
+4. Write `install.sh` following the four responsibilities above.
+5. Add a one-liner to the table at the top of this README.
 
 ## License
 
