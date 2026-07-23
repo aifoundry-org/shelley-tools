@@ -1,0 +1,210 @@
+#!/bin/bash
+# cyclo-ops - opinionated operations wrapper around the `cyclo` CLI.
+#
+# It does NOT replace `cyclo`; it encodes the safe operating procedure learned
+# from running Cyclo in anger: bounded retries, one-team-at-a-time discipline,
+# post-hoc run forensics ("sleuthing"), cost accounting, and clean teardown.
+#
+# Every subcommand ultimately shells out to the real `cyclo` binary, so you can
+# always drop down to `cyclo ...` directly.
+set -euo pipefail
+
+CYCLO_BIN="${CYCLO_BIN:-cyclo}"
+# Default state root matches Cyclo's own default ($XDG_STATE_HOME/cyclo).
+export CYCLO_STATE_ROOT="${CYCLO_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/cyclo}"
+STATE_ROOT="$CYCLO_STATE_ROOT"
+
+# Safety rails. A run that misbehaves (wrong command paths, recursive failure
+# notifications) can amplify model spend fast. These bound per-job retries and
+# consecutive failures unless the caller overrides them.
+export AGENTWS_MAX_JOB_ATTEMPTS="${AGENTWS_MAX_JOB_ATTEMPTS:-2}"
+export AGENTWS_MAX_CONSECUTIVE_FAILURES="${AGENTWS_MAX_CONSECUTIVE_FAILURES:-3}"
+
+die() { echo "cyclo-ops: $*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+usage() {
+  cat <<'USAGE'
+cyclo-ops - safe Cyclo deployment & operations
+
+DEPLOY / HEALTH
+  cyclo-ops doctor                    cyclo doctor (runtime + Docker check)
+  cyclo-ops providers                 list built-in gateway providers + login routes
+  cyclo-ops login <provider> [key]    provision a credential (key via stdin/arg/prompt)
+  cyclo-ops accounts                  show provisioned gateway accounts
+  cyclo-ops models [grep]             list gateway model ids (optional filter)
+
+RUN (bounded, one team at a time)
+  cyclo-ops run <team-dir> <project-dir> [instance-name]
+                                      start a team with safety caps exported
+  cyclo-ops task <instance> <task-id> <spec-file>
+                                      submit a task (shows spec first, asks to confirm)
+  cyclo-ops watch <instance> <task-id>
+                                      poll task/job state until terminal
+  cyclo-ops ls                        list instances (cyclo ps)
+
+OBSERVE
+  cyclo-ops cost [instance]           token/request usage (all, or one instance)
+  cyclo-ops sleuth <instance> [task-id]
+                                      print a forensic re-trace map for a run
+
+TEARDOWN
+  cyclo-ops stop <instance>           stop one instance
+  cyclo-ops stop-all                  stop every running instance
+
+Env: CYCLO_STATE_ROOT, AGENTWS_MAX_JOB_ATTEMPTS, AGENTWS_MAX_CONSECUTIVE_FAILURES
+USAGE
+}
+
+inst_dir() { echo "$STATE_ROOT/instances/$1"; }
+
+# Extract the JSON blob `cyclo usage` prints (it may emit a header line first).
+usage_json() { "$CYCLO_BIN" usage | sed -n '/^{/,$p'; }
+
+cmd_doctor()    { "$CYCLO_BIN" doctor; }
+cmd_providers() { "$CYCLO_BIN" gateway providers; }
+cmd_accounts()  { "$CYCLO_BIN" gateway status; }
+
+cmd_models() {
+  if [ $# -ge 1 ]; then "$CYCLO_BIN" models | grep -i -- "$1"; else "$CYCLO_BIN" models; fi
+}
+
+cmd_login() {
+  local provider="${1:-}"; shift || true
+  [ -n "$provider" ] || die "usage: cyclo-ops login <provider> [api-key]"
+  case "$provider" in
+    openai-codex)
+      # OAuth device flow; no key handling here.
+      exec "$CYCLO_BIN" gateway login "$provider" ;;
+    *)
+      # API-key providers (openrouter, etc): never put the key on argv/history.
+      local key="${1:-}"
+      if [ -z "$key" ] && [ ! -t 0 ]; then
+        # key piped on stdin
+        "$CYCLO_BIN" gateway login "$provider" --api-key-stdin; return
+      fi
+      if [ -z "$key" ]; then read -r -s -p "API key for $provider: " key; echo; fi
+      local tmp; tmp="$(mktemp)"; umask 077; printf '%s' "$key" > "$tmp"
+      "$CYCLO_BIN" gateway login "$provider" --api-key-stdin < "$tmp"
+      shred -u "$tmp" 2>/dev/null || rm -f "$tmp"
+      ;;
+  esac
+}
+
+cmd_run() {
+  local team="${1:-}" project="${2:-}" name="${3:-}"
+  [ -n "$team" ] && [ -n "$project" ] || die "usage: cyclo-ops run <team-dir> <project-dir> [instance-name]"
+  [ -d "$team" ] || die "team dir not found: $team"
+  [ -d "$project" ] || die "project dir not found: $project"
+  echo "cyclo-ops: validating team..." >&2
+  "$CYCLO_BIN" validate "$team"
+  echo "cyclo-ops: safety caps  attempts=$AGENTWS_MAX_JOB_ATTEMPTS consecutive-failures=$AGENTWS_MAX_CONSECUTIVE_FAILURES" >&2
+  if [ -n "$name" ]; then "$CYCLO_BIN" run --name "$name" "$team" "$project";
+  else "$CYCLO_BIN" run "$team" "$project"; fi
+}
+
+cmd_task() {
+  local inst="${1:-}" task="${2:-}" spec="${3:-}"
+  [ -n "$inst" ] && [ -n "$task" ] && [ -n "$spec" ] || die "usage: cyclo-ops task <instance> <task-id> <spec-file>"
+  [ -f "$spec" ] || die "spec file not found: $spec"
+  echo "===== task spec: $spec =====" >&2; cat "$spec" >&2; echo "=============================" >&2
+  if [ -t 0 ]; then read -r -p "Submit this task to '$inst'? [y/N] " ans; case "$ans" in y|Y) ;; *) die "aborted";; esac; fi
+  "$CYCLO_BIN" task "$inst" "$task" "$spec"
+}
+
+cmd_watch() {
+  local inst="${1:-}" task="${2:-}"; local d; d="$(inst_dir "$inst")/agentws-state"
+  [ -n "$inst" ] && [ -n "$task" ] || die "usage: cyclo-ops watch <instance> <task-id>"
+  [ -d "$d/tasks/$task" ] || die "no such task under $inst: $task"
+  local i ts st jobs
+  for i in $(seq 1 60); do
+    ts=$(date -u +%H:%M:%S); st=$(cat "$d/tasks/$task/state" 2>/dev/null || echo '?')
+    jobs=""; for jd in "$d"/jobs/"$task"-*; do [ -d "$jd" ] || continue; jobs+="$(basename "$jd" | sed "s/^$task-//")=$(cat "$jd/status" 2>/dev/null) "; done
+    echo "[$ts] task=$st $jobs"
+    case "$st" in done|failed|cancelled) break;; esac
+    sleep 15
+  done
+}
+
+cmd_ls()   { "$CYCLO_BIN" ps; }
+
+cmd_cost() {
+  local inst="${1:-}"
+  if [ -z "$inst" ]; then usage_json; return; fi
+  usage_json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get("by_client",{}).get(sys.argv[1],{}),indent=2))' "$inst"
+}
+
+cmd_sleuth() {
+  local inst="${1:-}" task="${2:-}"; local S; S="$(inst_dir "$inst")"
+  [ -n "$inst" ] || die "usage: cyclo-ops sleuth <instance> [task-id]"
+  [ -d "$S" ] || die "no such instance state: $S"
+  local AWS="$S/agentws-state"
+  echo "# Re-trace map for instance '$inst'"
+  echo
+  echo "## 1. Manifest"; echo "cat $S/run.json"
+  echo
+  echo "## 2. Tasks present"; ls "$AWS/tasks" 2>/dev/null | sed 's/^/  - /'
+  echo "   Agents present:"; ls "$AWS/agents" 2>/dev/null | sed 's/^/  - /'
+  if [ -n "$task" ]; then
+    local A; A=$(ls "$AWS/agents" 2>/dev/null | head -1)
+    echo
+    echo "## 3. The instruction it got"
+    echo "cat $AWS/tasks/$task/spec.md"
+    echo "cat $AWS/agents/$A/prompt.md          # full role+protocol prompt"
+    echo
+    echo "## 4. Timeline"
+    echo "cat $AWS/tasks/$task/log.md"
+    echo "cat $AWS/tasks/$task/state"
+    echo "for j in $AWS/jobs/$task-*; do echo \$j; cat \$j/status; cat \$j/log.md; done"
+    echo
+    echo "## 5. Blow-by-blow (tool calls + turns)"
+    echo "grep -n '### Tool Call' $AWS/agents/$A/transcript.log"
+    echo "less $AWS/agents/$A/transcript.log        # curated view"
+    echo "ls $AWS/agents/$A/pi-session/*.jsonl      # raw source of truth"
+    echo
+    echo "## 6. Work products + result"
+    echo "ls  $AWS/jobs/$task-*/workspace/"
+    echo "cat $AWS/tasks/$task/result.md"
+    echo
+    echo "## 7. Cost"
+    echo "cyclo-ops cost $inst"
+    echo
+    echo "## 8. Code it produced lives in the PROJECT git repo, on branch task/$task"
+    echo "   (the .cyclo-worktrees gitdir points at the container /workspace, so read via the branch):"
+    echo "   git -C <project> log --oneline <base>..task/$task"
+    echo "   git -C <project> show <candidate-commit>"
+  else
+    echo
+    echo "(pass a <task-id> for the full per-task re-trace map)"
+  fi
+}
+
+cmd_stop()     { "$CYCLO_BIN" stop "${1:?usage: cyclo-ops stop <instance>}"; }
+cmd_stop_all() {
+  "$CYCLO_BIN" ps | awk 'NR>1 && $2=="running"{print $1}' | while read -r i; do
+    [ -n "$i" ] && { echo "stopping $i"; "$CYCLO_BIN" stop "$i"; }
+  done
+}
+
+main() {
+  have "$CYCLO_BIN" || die "'$CYCLO_BIN' not found on PATH; run install.sh first"
+  local sub="${1:-}"; shift || true
+  case "$sub" in
+    doctor)    cmd_doctor "$@" ;;
+    providers) cmd_providers "$@" ;;
+    login)     cmd_login "$@" ;;
+    accounts)  cmd_accounts "$@" ;;
+    models)    cmd_models "$@" ;;
+    run)       cmd_run "$@" ;;
+    task)      cmd_task "$@" ;;
+    watch)     cmd_watch "$@" ;;
+    ls|ps)     cmd_ls "$@" ;;
+    cost)      cmd_cost "$@" ;;
+    sleuth)    cmd_sleuth "$@" ;;
+    stop)      cmd_stop "$@" ;;
+    stop-all)  cmd_stop_all "$@" ;;
+    ''|-h|--help|help) usage ;;
+    *) die "unknown subcommand '$sub' (try: cyclo-ops help)" ;;
+  esac
+}
+main "$@"
