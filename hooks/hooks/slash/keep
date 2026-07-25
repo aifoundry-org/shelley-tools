@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Slash command /keep -> shared command dispatcher.
+exec python3 "$(dirname "$0")/../command-dispatch.py"
