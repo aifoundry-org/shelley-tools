@@ -33,7 +33,7 @@ if [ ! -f "$CFG" ]; then
   detect SHELLEY_LIVE_BIN "$live"
   detect SHELLEY_SVC_USER "$(id -un)"
   detect SHELLEY_STATE_DIR "$HOME/.config/shelley"
-  echo "created $CFG (autodetected where possible \u2014 review it!)"
+  echo "created $CFG (autodetected where possible — review it!)"
 else
   echo "keeping existing $CFG"
 fi

@@ -69,7 +69,7 @@ def cmd_rebase(arg: str):
     return f"""Launch a subagent to rebase the fork onto upstream tag `{tag}`.
 
 Use the `subagent` tool with slug `rebase-{tag}` and reasoning `high`. Do NOT
-do the git work yourself in this conversation \u2014 delegate it. Pass the subagent
+do the git work yourself in this conversation — delegate it. Pass the subagent
 the full context and instructions below. Report back to me ONLY once the
 subagent reports success (branch builds + tests pass), or if it needs a
 decision from me. It is fine for the subagent to ask me for help.
@@ -86,9 +86,9 @@ Background / repo layout:
 Goal: create a branch `{branch}` based on upstream tag `{tag}`, then replay all
 of the fork's own commits on top of it.
 
-Steps \u2014 be very careful, and stop to ask the user if anything is ambiguous:
+Steps — be very careful, and stop to ask the user if anything is ambiguous:
   1. `cd {REPO}`. Confirm the working tree is clean (`git status`). If it is
-     dirty, STOP and ask the user how to proceed \u2014 do not discard work.
+     dirty, STOP and ask the user how to proceed — do not discard work.
   2. Fetch the latest state of every remote, including tags:
        `git fetch --all --tags --prune`
   3. Verify the tag exists: `git rev-parse --verify refs/tags/{tag}`. If it
@@ -112,7 +112,7 @@ Steps \u2014 be very careful, and stop to ask the user if anything is ambiguous:
      help rather than guessing. Never blindly take one side.
   7. When the rebase completes, ensure `{branch}` points at the final rebased
      commit.
-  8. Build and test \u2014 everything must pass:
+  8. Build and test — everything must pass:
        - `make build`  (builds UI + Go binary)
        - `go test ./server`
        - `cd ui && pnpm run type-check && pnpm run type-check:vue`
@@ -137,7 +137,7 @@ shelley binary, with an automatic 5-minute rollback safety net.
 Use the `subagent` tool with slug `swap-{ref}` and reasoning `high`. Do NOT do
 this work yourself in this conversation. Pass the subagent the full context and
 instructions below. Report back to me as soon as the swap has been *scheduled*
-(binary built, backup made, restart armed) \u2014 do not wait for the restart, because
+(binary built, backup made, restart armed) — do not wait for the restart, because
 the restart will kill this very conversation's process. It is fine for the
 subagent to ask me for help.
 
@@ -152,7 +152,7 @@ You are hot-swapping the running shelley binary in the repo at `{REPO}`.
 
 CRITICAL CONTEXT: shelley runs as the systemd service `{SVC}` with binary
 `{LIVE}`. You (this subagent) execute *inside* that process. Restarting the
-service will kill you. Therefore you must NOT restart the service yourself \u2014
+service will kill you. Therefore you must NOT restart the service yourself —
 instead you build + back up, then hand off the install / restart /
 rollback-arming to a DETACHED systemd transient unit that survives the restart.
 Scripts for this already exist and are tested:
@@ -169,12 +169,12 @@ produce a good binary and hand it off; the scripts protect the service.
 Note: `{ref}` may be a tag OR a local branch. Verify it with
 `git rev-parse --verify {ref}` (do not assume refs/tags/).
 
-Steps \u2014 be careful and stop to report if anything is ambiguous. Use change_dir,
+Steps — be careful and stop to report if anything is ambiguous. Use change_dir,
 not chained `cd`.
 
   1. Work in `{REPO}`. Note the current git state so you can return to it
      (`git rev-parse --abbrev-ref HEAD`, `git stash list`, `git status`). If
-     the working tree is dirty, STOP and ask me how to proceed \u2014 do not discard
+     the working tree is dirty, STOP and ask me how to proceed — do not discard
      work.
   2. `git fetch --all --tags --prune` (a fork-remote SSH failure may be
      harmless if the ref is local). Verify the ref: `git rev-parse --verify
@@ -199,7 +199,7 @@ not chained `cd`.
      preflight it again before installing).
   6. Make a timestamped backup of the CURRENTLY running binary:
        `cp -a {LIVE} {STATE_DIR}/shelley-backup-$(date +%Y%m%d-%H%M%S)`
-     Capture the exact backup path \u2014 you'll pass it to the apply script and it
+     Capture the exact backup path — you'll pass it to the apply script and it
      is the rollback target. (Use `sudo cp -a` if permission denied.)
   7. Clear any stale apply unit, then hand off to the DETACHED applier ~20s out
      so this conversation can flush its report first:
@@ -217,7 +217,7 @@ not chained `cd`.
      that the swap+restart is scheduled ~20s out, and that an automatic
      rollback fires in 5 minutes unless the operator runs `keep`. Do NOT wait.
 
-Do not report success as "tested and working" \u2014 you cannot test the swapped
+Do not report success as "tested and working" — you cannot test the swapped
 binary yourself (the restart kills you). Report only that the swap is armed,
 plus your step-5 preflight result.
 """
@@ -227,7 +227,7 @@ def cmd_keep(arg: str):
     return f"""The operator has confirmed the freshly swapped shelley build is GOOD. Cancel
 the pending 5-minute auto-rollback so the new binary stays.
 
-Do this directly (no subagent needed \u2014 it's a one-liner):
+Do this directly (no subagent needed — it's a one-liner):
   `sudo systemctl stop {ROLLBACK_TIMER}.timer 2>/dev/null; \\
    sudo systemctl reset-failed {ROLLBACK_TIMER}.service 2>/dev/null; \\
    echo "$(date -Is) KEEP: auto-rollback cancelled" | sudo tee -a /tmp/shelley-swap.log`
@@ -246,7 +246,7 @@ The rollback must run DETACHED, because restarting {SVC} kills this
 conversation's process. Find the most recent backup and hand off to the
 detached rollback script:
   1. `BK=$(ls -1t {STATE_DIR}/shelley-backup-* 2>/dev/null | head -1)`.
-     If none exists, STOP and tell me \u2014 there is nothing to roll back to.
+     If none exists, STOP and tell me — there is nothing to roll back to.
   2. Schedule the detached rollback ~10s out so this report flushes first:
      `sudo systemd-run --collect --unit=shelley-swap-manual-rollback --on-active=10s \\
         {SCRIPTS}/shelley-swap-rollback.sh "$BK"`
