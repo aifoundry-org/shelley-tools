@@ -10,6 +10,7 @@ reaching resources outside its VM, etc.
 | Tool | What it does |
 |---|---|
 | [`rbrowser/`](./rbrowser) | Lets Shelley drive **your** local Chrome (navigate, click, type, screenshot) via Chrome DevTools Protocol tunneled over SSH. No browser extension required. |
+| [`rb/`](./rb) | Lets Shelley do **web research without getting CAPTCHA'd**: drives a real, visible, persistent Chrome **on the VM** over CDP, with a search/fetch CLI, automatic block detection, and a noVNC view so a human can take over and clear a challenge in the same session. |
 | [`cyclo/`](./cyclo) | Deploy and operate [Cyclo](https://github.com/glguida/cyclo) — Git-defined multi-agent teams in Docker — safely: bounded-retry runs, task confirmation, watching, cost accounting, run forensics, and teardown. |
 | [`hooks/`](./hooks) | Extensible **operator commands** for Shelley (`rebase`, `swap`, `keep`, `rollback`) via lifecycle hooks: type a command and Shelley expands it into a full task, e.g. rebasing a fork or hot-swapping the running binary with an auto-rollback safety net. |
 

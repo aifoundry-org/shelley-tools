@@ -1,0 +1,10 @@
+#!/bin/bash
+# rb wrapper — runs rb.py inside its virtualenv.
+set -e
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+VENV="${RB_VENV:-$HERE/.venv}"
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "rb: no virtualenv at $VENV — run $HERE/install.sh first" >&2
+  exit 1
+fi
+exec "$VENV/bin/python" "$HERE/rb.py" "$@"
