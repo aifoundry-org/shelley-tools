@@ -31,6 +31,7 @@ healthy() {
 echo
 log "=== RESTORE: local Shelley back on ${REMOTE_SHELLY_LISTEN} ==="
 systemctl stop remote-shelley-restore.timer 2>/dev/null || true
+systemctl stop remote-shelley-watchdog.service 2>/dev/null || true
 systemctl stop remote-shelley.service 2>/dev/null || true
 sleep 1
 systemctl start "$SHELLEY_SOCKET_UNIT" "$SHELLEY_SERVICE_UNIT"

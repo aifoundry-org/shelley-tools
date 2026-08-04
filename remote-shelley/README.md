@@ -71,13 +71,30 @@ does the work:
    remote.
 4. On any failure → **immediately restore the local Shelley**; the VM is never
    left with nothing answering.
-5. On success → arm an **auto-restore timer** (default 5min). If the operator
-   doesn't type `remote-shelley keep`, the local Shelley comes back on its own
-   — so a bad or unwanted swap can never strand you.
+5. On success → start a **watchdog** and arm an **auto-restore timer** (default
+   5min). If the operator doesn't type `remote-shelley keep`, the local
+   Shelley comes back on its own — so a bad or unwanted swap can never strand
+   you.
+
+### Continuous monitoring (the watchdog)
+
+While a swap is active, `remote-shelley-watchdog.service` runs alongside the
+proxy (its lifecycle is bound to it via systemd `BindsTo`/`PartOf`). Every
+`REMOTE_SHELLY_WATCH_INTERVAL` seconds (default 15) it makes a **fresh
+end-to-end request through the proxy** to the upstream — a cache-busted GET on
+the proxy's own port, so it exercises the whole VM → proxy → remote → back
+path, not just "is the process alive."
+
+If the probe fails `REMOTE_SHELLY_WATCH_FAILS` times in a row (default 3, so
+~45s of sustained outage — e.g. the remote Shelley crashed, or Tailscale
+dropped), the watchdog **fails over automatically to the local Shelley** and
+logs it. It never fights a deliberate restore: if the proxy stops because a
+restore is already underway, the watchdog stands down instead of re-adding the
+proxy.
 
 The same machinery powers `off` (manual restore) and `keep` (cancel the
 timer). Orchestration log: `~/.config/shelley/remote-shelley/swap.log`;
-per-request proxy log: `proxy.log` in the same directory.
+per-request proxy log: `proxy.log`; watchdog log: `watchdog.log` (same dir).
 
 ## Usage
 

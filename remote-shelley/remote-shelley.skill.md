@@ -62,6 +62,11 @@ is armed, that they have the grace period (default 5min) to type
 `~/.config/shelley/remote-shelley/swap.log`. **End your turn promptly — the
 restart kills you; do not wait to observe it.**
 
+While a swap is active, a **watchdog** (`remote-shelley-watchdog.service`)
+probes the proxy end-to-end every ~15s; if the remote stops answering for
+~45s+ it fails over to the local Shelley automatically and logs it to
+`swap.log`. So a swap can self-heal even without the operator.
+
 For **keep** / **off** / **status**: also direct one-liners via the CLI.
 
 ## Layout
@@ -80,6 +85,7 @@ For **keep** / **off** / **status**: also direct one-liners via the CLI.
 | Swap starts but immediately swaps back | Upstream answered preflight but stopped serving; check `proxy.log` and that the remote is stable. `remote-shelley keep` only helps once the proxy is healthy. |
 | 502 from the proxy | Remote Shelley unreachable from the VM (Tailscale down?). Check `curl -sI <upstream>/`. |
 | Conversation cut off mid-swap | Expected — the restart kills the agent. Wait a few seconds and reload; if the swap failed, the local Shelley is restored automatically. |
+| Swapped to remote, but later I'm back on local without running `off` | The watchdog detected the remote stopped answering and failed over. Check `swap.log` for `watchdog` lines and confirm the remote + Tailscale are stable. |
 
 ## Verifying installation
 

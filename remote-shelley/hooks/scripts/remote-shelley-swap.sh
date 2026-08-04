@@ -50,6 +50,9 @@ sleep 1
 # --- 3. Start the proxy on the freed port + health-check --------------------
 systemctl reset-failed remote-shelley.service 2>/dev/null || true
 systemctl start remote-shelley.service
+# Start the watchdog alongside the proxy (its lifecycle is bound to the proxy).
+systemctl reset-failed remote-shelley-watchdog.service 2>/dev/null || true
+systemctl start remote-shelley-watchdog.service 2>/dev/null || true
 ok=0
 deadline=$(( $(date +%s) + 40 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -65,6 +68,7 @@ if [ "$ok" != 1 ]; then
   exit 1
 fi
 log "proxy is SERVING $UPSTREAM on ${REMOTE_SHELLY_LISTEN}"
+log "watchdog active: will fail over to local Shelley if the remote stops answering"
 
 # --- 4. Arm the auto-restore grace timer ------------------------------------
 systemctl stop remote-shelley-restore.timer 2>/dev/null || true

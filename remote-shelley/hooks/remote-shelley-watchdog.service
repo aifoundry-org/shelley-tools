@@ -1,0 +1,19 @@
+[Unit]
+Description=remote-shelley watchdog: fail over to local Shelley if the remote stops working
+# Lifecycle is tied to the proxy: only runs while remote-shelley.service does,
+# and stops when it stops (so a manual restore doesn't leave the watchdog
+# fighting to put the proxy back).
+BindsTo=remote-shelley.service
+PartOf=remote-shelley.service
+After=remote-shelley.service
+
+[Service]
+Type=simple
+ExecStart=__RS_STATE__/scripts/remote-shelley-watchdog.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:__RS_STATE__/watchdog.log
+StandardError=append:__RS_STATE__/watchdog.log
+
+[Install]
+WantedBy=multi-user.target

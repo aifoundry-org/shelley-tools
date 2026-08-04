@@ -64,13 +64,16 @@ if command -v shelley >/dev/null 2>&1; then
 fi
 
 # -- 4. systemd proxy unit + hook payload -----------------------------------
-# Template the unit with this machine's user/home (%h doesn't resolve in
+# Template the units with this machine's user/home (%h doesn't resolve in
 # system services, so install-time substitution keeps it portable).
 sed -e "s|__RS_USER__|$(id -un)|g" -e "s|__RS_HOME__|$HOME|g" \
   "$HERE/hooks/remote-shelley-proxy.service" | \
   sudo tee /etc/systemd/system/remote-shelley.service >/dev/null
+sed -e "s|__RS_STATE__|$STATE|g" \
+  "$HERE/hooks/remote-shelley-watchdog.service" | \
+  sudo tee /etc/systemd/system/remote-shelley-watchdog.service >/dev/null
 sudo systemctl daemon-reload
-echo "installed systemd unit remote-shelley.service (not started)"
+echo "installed systemd units remote-shelley.service + remote-shelley-watchdog.service (not started)"
 
 chmod +x "$HERE/hooks/new-conversation" "$HERE/hooks/chat-message" \
          "$HERE/hooks/slash/$TOOL" "$HERE/hooks/command-dispatch.py"

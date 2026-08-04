@@ -58,11 +58,14 @@ case "$cmd" in
   status)
     echo "--- listeners on ${REMOTE_SHELLY_LISTEN##*:}:"
     ss -tlnp 2>/dev/null | grep ":${REMOTE_SHELLY_LISTEN##*:} " || echo "  (nothing listening)"
-    echo "--- units:"
-    systemctl is-active remote-shelley.service "$SHELLEY_SOCKET_UNIT" "$SHELLEY_SERVICE_UNIT" 2>/dev/null | paste -sd' ' -
+    echo "--- units (proxy, watchdog, shelley.socket, shelley.service):"
+    paste <(echo -e "remote-shelley.service\nremote-shelley-watchdog.service\n$SHELLEY_SOCKET_UNIT\n$SHELLEY_SERVICE_UNIT") \
+          <(systemctl is-active remote-shelley.service remote-shelley-watchdog.service "$SHELLEY_SOCKET_UNIT" "$SHELLEY_SERVICE_UNIT" 2>/dev/null)
     echo "--- last upstream: $(cat "$REMOTE_SHELLY_STATE_DIR/upstream" 2>/dev/null || echo none)"
     echo "--- timers:"
     systemctl list-timers 'remote-shelley-*' --no-pager 2>/dev/null || true
+    echo "--- recent watchdog/proxy activity:"
+    tail -4 "$REMOTE_SHELLY_STATE_DIR/swap.log" 2>/dev/null | grep -E 'watchdog|SWAP|RESTORE' || echo "  (none)"
     ;;
   *)
     echo "usage: remote-shelley {swap <url>|keep|off|status}" >&2
