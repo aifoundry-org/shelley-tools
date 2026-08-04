@@ -39,15 +39,17 @@ case "$cmd" in
     sudo systemd-run --collect --unit="$UNIT" --on-active=5s \
       "$HERE/scripts/remote-shelley-swap.sh" "$upstream"
     echo "remote-shelley: swap to $upstream scheduled ~5s out (detached unit $UNIT)."
-    echo "  Auto-restore to local Shelley in $REMOTE_SHELLY_GRACE unless you run:  remote-shelley keep"
+    echo "  The swap is STICKY (no auto-restore timer) — a watchdog fails over to local if the remote dies."
+    echo "  To return to the local Shelley:  remote-shelley off   (from a still-open local convo or over SSH)"
     echo "  Log: $REMOTE_SHELLY_STATE_DIR/swap.log"
     ;;
   keep)
+    # Sticky-swap: no grace timer to cancel anymore. Kept as a no-op so older
+    # prompts/habits don't error; just clean up any stale timer from before.
     sudo systemctl stop "$RESTORE_TIMER.timer" 2>/dev/null || true
     sudo systemctl reset-failed "$RESTORE_TIMER.service" 2>/dev/null || true
-    echo "$(date -Is) KEEP: auto-restore cancelled" | sudo tee -a "$REMOTE_SHELLY_STATE_DIR/swap.log" >/dev/null
-    echo "remote-shelley: auto-restore cancelled; staying on the remote."
-    systemctl list-timers 'remote-shelley-*' --no-pager || true
+    echo "$(date -Is) KEEP: no-op (swap is sticky; cleared any stale restore timer)" | sudo tee -a "$REMOTE_SHELLY_STATE_DIR/swap.log" >/dev/null
+    echo "remote-shelley: swap is sticky — nothing to confirm. Use 'remote-shelley off' to return to local."
     ;;
   off|restore)
     sudo systemctl reset-failed remote-shelley-restore.service 2>/dev/null || true

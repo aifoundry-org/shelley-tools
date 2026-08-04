@@ -14,8 +14,13 @@
 #      the REMOTE (not the local) Shelley.
 #   4. On any failure: immediately restore the local Shelley — never leave the
 #      VM with no Shelley answering on its front page port.
-#   5. On success: arm an auto-restore timer (operator grace) that puts the
-#      local Shelley back unless the operator runs `remote-shelley keep`.
+#   5. On success: the swap is STICKY. The watchdog (started above) is the
+#      safety net — it fails over to the local Shelley if the remote stops
+#      answering. We deliberately do NOT arm a timed auto-restore here: there
+#      is nowhere to type `keep` once the UI is the remote Shelley, so a grace
+#      timer would just bounce a perfectly good swap back after a few minutes.
+#      To return to the local Shelley, run `remote-shelley off` (works from a
+#      still-open local conversation or over SSH).
 set -uo pipefail
 UPSTREAM="${1:-}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,9 +75,11 @@ fi
 log "proxy is SERVING $UPSTREAM on ${REMOTE_SHELLY_LISTEN}"
 log "watchdog active: will fail over to local Shelley if the remote stops answering"
 
-# --- 4. Arm the auto-restore grace timer ------------------------------------
+# --- 4. Swap is sticky; watchdog is the safety net ---------------------------
+# No timed auto-restore: the watchdog continuously verifies the remote keeps
+# answering and fails over to the local Shelley if it doesn't. A grace timer
+# would strand a good swap (nowhere to type `keep` once the UI is remote).
 systemctl stop remote-shelley-restore.timer 2>/dev/null || true
 systemctl reset-failed remote-shelley-restore.service 2>/dev/null || true
-systemd-run --collect --unit=remote-shelley-restore --on-active="$REMOTE_SHELLY_GRACE" "$RESTORE"
-log "armed auto-restore at +$REMOTE_SHELLY_GRACE (run 'remote-shelley keep' to cancel)"
+log "SWAP complete and sticky — watchdog guards it. Run 'remote-shelley off' to return to local."
 log "SWAP complete."

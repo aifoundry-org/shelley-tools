@@ -80,27 +80,31 @@ Do this DIRECTLY (no subagent) — it is a single hand-off:
   {CLI} swap {upstream}
 
 That schedules a DETACHED systemd unit which stops the local Shelley, binds
-its port with a reverse proxy to {upstream}, health-checks it, and arms an
-auto-restore (back to the local Shelley) after {GRACE}.
+its port with a reverse proxy to {upstream}, health-checks it, and starts a
+watchdog that fails over to the local Shelley if the remote stops answering.
+The swap is STICKY — there is no grace timer to confirm against (there'd be
+nowhere to type `keep` once the UI is the remote).
 
 CRITICAL: the swap stops the local Shelley, which kills THIS conversation's
 process. So: run the command, immediately relay to the user that the swap is
-armed (~5s out), that they have {GRACE} to confirm with `remote-shelley keep`
-or it will swap back, and that the log is {STATE_DIR}/swap.log. Then END YOUR
-TURN promptly so the report flushes before the restart. Do not wait to observe
-the swap — you cannot survive it."""
+armed (~5s out) and sticky, that a watchdog guards it (auto fail-back if the
+remote dies), and that to return to the local Shelley they run
+`remote-shelley off` from a still-open local conversation or over SSH. Log:
+{STATE_DIR}/swap.log. Then END YOUR TURN promptly so the report flushes
+before the restart. Do not wait to observe the swap — you cannot survive it."""
 
     if sub == "keep":
-        return f"""The operator confirmed the remote-shelley swap is GOOD. Cancel the pending
-auto-restore so the remote Shelley stays on this VM's port.
+        return f"""The operator ran `remote-shelley keep`. NOTE: as of the sticky-swap change
+there is no longer a grace timer to cancel — a successful swap already stays
+on the remote indefinitely, guarded by the watchdog. So `keep` is a no-op.
 
 Do this directly (one-liner, no subagent):
 
   {CLI} keep
 
-Then confirm to the user that the auto-restore is cancelled and the remote
-Shelley is now permanent (until `remote-shelley off`). If there was no pending
-restore timer, say so plainly."""
+Then tell the user plainly: the swap is already sticky, nothing to confirm,
+and to return to the local Shelley they can run `remote-shelley off` (from a
+still-open local conversation or over SSH)."""
 
     if sub in ("off", "restore"):
         return f"""The operator wants to swap BACK to the LOCAL Shelley now (do not wait for

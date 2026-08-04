@@ -1,6 +1,6 @@
 ---
 name: remote-shelley
-description: Use when the user wants this VM to act as a routing front-end that swaps its Shelley port over to a REMOTE Shelley instance (e.g. one on their own infrastructure, reached over Tailscale at http://aifoundry1:32768), so that opening this VM's normal Shelley URL talks to the remote instance. Handles swap / keep / off / status with an auto-restore safety net.
+description: Use when the user wants this VM to act as a routing front-end that swaps its Shelley port over to a REMOTE Shelley instance (e.g. one on their own infrastructure, reached over Tailscale at http://aifoundry1:32768), so that opening this VM's normal Shelley URL talks to the remote instance. Handles swap / off / status; swaps are sticky and guarded by a watchdog that fails over to the local Shelley if the remote stops answering.
 ---
 
 # remote-shelley — swap this VM's Shelley for a remote one
@@ -23,9 +23,13 @@ Swapping the port **stops the local Shelley, which kills the very agent
 process serving this conversation**. A naive swap in the foreground dies
 mid-operation, leaving NOTHING listening on the port. So the actual swap is
 always handed off to a DETACHED systemd unit (`remote-shelley-swap.service`)
-that survives the restart, health-checks the result, and arms an
-auto-restore timer that puts the local Shelley back unless the operator
-confirms with `keep`.
+that survives the restart, health-checks the result, and starts a watchdog
+that fails over to the local Shelley if the remote stops answering.
+
+The swap is **sticky**: there is deliberately NO timed auto-restore, because
+after a swap the UI in front of the user is the REMOTE Shelley — which has no
+`remote-shelley` tool — so there'd be nowhere to type `keep` to stop a grace
+timer from bouncing a good swap back. The watchdog is the safety net.
 
 **You (the agent) never run the swap steps yourself. You only schedule the
 detached unit, then end your turn so your report flushes before the restart.**
@@ -44,11 +48,11 @@ rewrite it), or via the `/remote-shelley` slash command, or the CLI at
 
 | Command | Effect |
 |---|---|
-| `remote-shelley <url>` | Swap the port to proxy `<url>` (e.g. `http://aifoundry1:32768`). |
+| `remote-shelley <url>` | Swap the port to proxy `<url>` (e.g. `http://aifoundry1:32768`). Sticky. |
 | `remote-shelley swap <url>` | Same, explicit form. |
-| `remote-shelley keep` | Cancel the auto-restore; stay on the remote. |
 | `remote-shelley off` | Swap back to the local Shelley now. |
-| `remote-shelley status` | Show what's answering on the port + pending timers. |
+| `remote-shelley status` | Show what's answering on the port + watchdog activity. |
+| `remote-shelley keep` | No-op (legacy). Swaps are sticky, so nothing to confirm. |
 
 With no URL, the default is `REMOTE_SHELLY_UPSTREAM` from
 `~/.config/shelley/hooks/config.env`.
@@ -57,8 +61,10 @@ With no URL, the default is `REMOTE_SHELLY_UPSTREAM` from
 
 For a **swap**: run `remote-shelley swap <url>` DIRECTLY (no subagent). It
 schedules the detached unit ~5s out. Then immediately tell the user the swap
-is armed, that they have the grace period (default 5min) to type
-`remote-shelley keep` or it swaps back, and that the log is at
+is armed and STICKY (no grace timer — nothing to confirm), that a watchdog
+guards it (auto fail-back to local if the remote dies), and that to return to
+the local Shelley they run `remote-shelley off` from a still-open local
+conversation or over SSH. The log is at
 `~/.config/shelley/remote-shelley/swap.log`. **End your turn promptly — the
 restart kills you; do not wait to observe it.**
 
@@ -88,8 +94,8 @@ For **keep** / **off** / **status**: also direct one-liners via the CLI.
 
 | Symptom | Fix |
 |---|---|
-| After a swap, nothing answers on the URL | The swap preflights the upstream first and restores the local Shelley on failure; check `swap.log`. If the VM is wedged, the auto-restore timer fires regardless. |
-| Swap starts but immediately swaps back | Upstream answered preflight but stopped serving; check `proxy.log` and that the remote is stable. `remote-shelley keep` only helps once the proxy is healthy. |
+| After a swap, nothing answers on the URL | The swap preflights the upstream first and restores the local Shelley on failure; check `swap.log`. If the VM is wedged, the watchdog fails over to local. |
+| Swap starts but later bounces back to local | The watchdog detected the remote stopped answering (while Tailscale was healthy) and failed over. Check `swap.log` for `watchdog` lines and the remote's stability. |
 | 502 from the proxy | Remote Shelley unreachable from the VM (Tailscale down?). Check `curl -sI <upstream>/`. |
 | Conversation cut off mid-swap | Expected — the restart kills the agent. Wait a few seconds and reload; if the swap failed, the local Shelley is restored automatically. |
 | Swapped to remote, but later I'm back on local without running `off` | The watchdog detected the remote stopped answering and failed over. Check `swap.log` for `watchdog` lines and confirm the remote + Tailscale are stable. |
