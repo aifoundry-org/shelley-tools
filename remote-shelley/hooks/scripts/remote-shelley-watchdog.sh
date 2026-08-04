@@ -27,6 +27,23 @@ log() { echo "$(date -Is) [watchdog] $*" >>"$LOG"; }
 INTERVAL="${REMOTE_SHELLY_WATCH_INTERVAL:-15}"
 MAXFAILS="${REMOTE_SHELLY_WATCH_FAILS:-3}"
 
+# trigger_restore <reason>
+# Hand the restore to a DETACHED systemd transient unit. CRITICAL: the restore
+# stops remote-shelley.service, which (via BindsTo/PartOf) also stops THIS
+# watchdog service — so running the restore inline would kill the restore
+# script itself (a child of the watchdog) before it could start the local
+# Shelley, leaving the VM dark. A detached unit survives that teardown.
+# systemd-run needs root; the watchdog runs as root already (its unit has no
+# User=), but use sudo defensively in case that ever changes.
+trigger_restore() {
+  local reason="$1"
+  log "triggering detached restore ($reason)"
+  local SUDO=""; [ "$(id -u)" = "0" ] || SUDO="sudo"
+  $SUDO systemctl reset-failed remote-shelley-restore.service 2>/dev/null || true
+  $SUDO systemd-run --collect --unit=remote-shelley-restore --on-active=2s "$RESTORE" || \
+    log "ERROR: failed to schedule detached restore"
+}
+
 log "start: probing $REMOTE_SHELLY_SOCK_URL every ${INTERVAL}s, failover after $MAXFAILS consecutive failures"
 fails=0
 while true; do
@@ -46,7 +63,7 @@ while true; do
     if ! systemctl is-active --quiet remote-shelley.service; then
       if ! curl -s -m 4 -o /dev/null "$REMOTE_SHELLY_SOCK_URL"; then
         log "nothing answering after proxy stop; ensuring local Shelley is restored"
-        "$RESTORE" || log "ERROR: restore returned nonzero"
+        trigger_restore "proxy-stopped-nothing-serving"
       fi
       exit 0
     fi
@@ -73,7 +90,7 @@ while true; do
     log "probe FAILED with Tailscale healthy ($fails/$MAXFAILS)"
     if [ "$fails" -ge "$MAXFAILS" ]; then
       log "upstream unreachable for $((MAXFAILS * INTERVAL))s+ (Tailscale OK) — failing over to local Shelley"
-      "$RESTORE" || log "ERROR: failover restore returned nonzero"
+      trigger_restore "watchdog-failover"
       exit 0
     fi
   fi
