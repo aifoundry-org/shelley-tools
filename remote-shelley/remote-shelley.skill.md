@@ -67,6 +67,13 @@ probes the proxy end-to-end every ~15s; if the remote stops answering for
 ~45s+ it fails over to the local Shelley automatically and logs it to
 `swap.log`. So a swap can self-heal even without the operator.
 
+**Tailscale:** the upstream is usually a MagicDNS name whose resolution depends
+on Tailscale's DNS (`100.100.100.100`). The watchdog is Tailscale-aware — it
+checks `tailscale status` `BackendState` on each failed probe and waits out a
+transient tailscaled restart WITHOUT counting it toward failover. Only failures
+while Tailscale is healthy fail over. Failover is always safe: the local
+Shelley fallback has no Tailscale dependency.
+
 For **keep** / **off** / **status**: also direct one-liners via the CLI.
 
 ## Layout

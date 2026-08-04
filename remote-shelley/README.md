@@ -126,6 +126,26 @@ or the `remote-shelley` CLI on the VM.
   and `~/.config/shelley/remote-shelley/config.env`). Edit the listen address,
   default upstream, grace period there.
 
+### Tailscale notes (when the remote is on your tailnet)
+
+- The upstream is usually a **MagicDNS name** (`http://aifoundry1:32768`).
+  Resolution depends entirely on Tailscale's DNS (`100.100.100.100`) — there is
+  no `/etc/hosts` fallback — so a tailscaled restart briefly breaks resolution.
+  The proxy re-resolves per connection (cgo system resolver, no stale cache),
+  so it recovers on its own once tailscaled is back.
+- The **watchdog is Tailscale-aware**: it checks `tailscale status`
+  (`BackendState`) on each failed probe. A failure while Tailscale is *down* is
+  treated as transient and does NOT count toward failover; only failures while
+  Tailscale is *healthy* mean the remote Shelley itself is gone. This keeps a
+  tailscaled restart (~2–5s) from triggering a spurious failover.
+- The VM's tailnet node is tagged (e.g. `tagged-devices`) with a persistent
+  node key in `/var/lib/tailscale/` — it survives reboots without re-auth.
+  Wiping that dir re-registers the node (new IP / lost ACLs); the tool only
+  ever talks *outbound* to the upstream, so it doesn't depend on the VM's own
+  tailnet identity beyond basic connectivity.
+- Failover is always safe: the fallback target is the *local* Shelley, which
+  has no Tailscale dependency, so it's reachable no matter what Tailscale does.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -133,6 +153,8 @@ or the `remote-shelley` CLI on the VM.
 | Nothing answers on the Shelley URL after a swap | Check `~/.config/shelley/remote-shelley/swap.log`. The auto-restore timer will bring the local Shelley back on its own; or SSH in and run `remote-shelley off`. |
 | 502 through the proxy | Remote unreachable from the VM. Verify Tailscale is up (`tailscale status`) and `curl -sI <upstream>/` answers. |
 | Swap keeps reverting before you can `keep` | The proxy health-check passed but the upstream then stopped serving. Check `proxy.log` and the remote Shelley's stability. |
+| Swapped to remote, later back on local without `off` | The watchdog detected the remote stopped answering (while Tailscale was healthy) and failed over. Check `swap.log` for `watchdog` lines. |
+| Failing over every time tailscaled restarts | Shouldn't happen — the watchdog waits out `BackendState != Running` without counting it. If it recurs, check `swap.log` to confirm the discriminator is seeing Tailscale state. |
 
 ## What's in this folder
 

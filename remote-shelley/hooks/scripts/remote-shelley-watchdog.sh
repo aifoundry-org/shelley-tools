@@ -58,10 +58,21 @@ while true; do
     if [ "$fails" -gt 0 ]; then log "recovered after $fails failure(s)"; fi
     fails=0
   else
+    # Tailscale-awareness: if the tailnet itself is down (tailscaled restarting,
+    # MagicDNS 100.100.100.100 unreachable, tunnel dropped), the probe failure is
+    # NOT the remote Shelley's fault and is usually transient (tailscaled
+    # restarts on-failure in a few seconds). Don't burn failover budget on it —
+    # wait it out. Only failure WHILE Tailscale is healthy means the remote
+    # Shelley itself is gone and we should fail over.
+    ts_state="$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("BackendState",""))' 2>/dev/null || echo unknown)"
+    if [ "$ts_state" != "Running" ]; then
+      log "probe failed but Tailscale BackendState='$ts_state' (transient) — waiting, NOT counting"
+      continue
+    fi
     fails=$((fails + 1))
-    log "probe FAILED ($fails/$MAXFAILS)"
+    log "probe FAILED with Tailscale healthy ($fails/$MAXFAILS)"
     if [ "$fails" -ge "$MAXFAILS" ]; then
-      log "upstream unreachable for $((MAXFAILS * INTERVAL))s+ — failing over to local Shelley"
+      log "upstream unreachable for $((MAXFAILS * INTERVAL))s+ (Tailscale OK) — failing over to local Shelley"
       "$RESTORE" || log "ERROR: failover restore returned nonzero"
       exit 0
     fi
