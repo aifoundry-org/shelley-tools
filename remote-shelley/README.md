@@ -35,6 +35,42 @@ CLI do the same thing.)
 
 ---
 
+## Cold start: provision a brand-new VM with one prompt
+
+You can have exe.dev set everything up automatically on a fresh VM by giving
+Shelley a single initial prompt. There are two ways to deliver it — note that
+`new --prompt` is currently unreliable (the prompt is stored but not always
+delivered), so the dependable method is `shelley prompt`:
+
+```sh
+ssh exe.dev shelley prompt <vm-name> 'Set up remote-shelley to proxy this VM to my Tailscale Shelley. Steps: (1) If `tailscale status --json` BackendState is not Running: `sudo systemctl enable --now tailscaled`, then `sudo tailscale up --hostname=exe-dev-proxy` and give me the login URL — wait for me to confirm I completed the browser login before continuing. (2) `git clone https://github.com/aifoundry-org/shelley-tools ~/shelley-tools` (or `git -C ~/shelley-tools pull` if it exists). (3) `cd ~/shelley-tools/remote-shelley && ./install.sh`. (4) Set REMOTE_SHELLY_UPSTREAM in hooks/config.env to http://aifoundry1:32768 and re-run install.sh. (5) Verify `curl -sI http://aifoundry1:32768/` returns a status, then run `remote-shelley swap http://aifoundry1:32768`. Tell me the swap is armed, then end your turn.'
+```
+
+The prompt is **idempotent**: each step is a no-op if already done (e.g. if the
+VM is already on the tailnet, step 1 is skipped entirely). Adjust the upstream
+URL (`http://aifoundry1:32768`) to your remote Shelley.
+
+### What happens, and where the human steps are
+
+The prompt runs fully unattended **except** for the steps that inherently need
+a person:
+
+1. **Tailscale login** — only if the tailnet doesn't auto-approve the node. If
+   it requires manual approval, the agent prints the
+   `https://login.tailscale.com/...` URL and waits for you to complete it. On a
+   tailnet with auto-approval (tagged nodes), this step is skipped and the VM
+   joins with no interaction.
+2. **`remote-shelley keep`** — after the swap completes (the agent ends its
+   turn because the swap kills its own process), open the VM's Shelley URL and
+   type `remote-shelley keep` to stay on the remote. Otherwise the auto-restore
+   puts the local Shelley back after the grace period.
+
+One-time prerequisite, separate from the prompt: your exe.dev account must be
+registered (email verification) before you can create VMs or run
+`shelley prompt`.
+
+---
+
 ## How it works
 
 ```
