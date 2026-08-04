@@ -1,0 +1,20 @@
+[Unit]
+Description=remote-shelley: reverse proxy on Shelley's port to a remote Shelley
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__RS_USER__
+EnvironmentFile=-__RS_HOME__/.config/shelley/remote-shelley/config.env
+ExecStartPre=/bin/sh -c 'test -n "$(cat __RS_HOME__/.config/shelley/remote-shelley/upstream 2>/dev/null)"'
+ExecStart=/bin/sh -c 'exec __RS_HOME__/.config/shelley/remote-shelley/bin/remote-shelley \
+  -listen "${REMOTE_SHELLY_LISTEN}" \
+  -upstream "$(cat __RS_HOME__/.config/shelley/remote-shelley/upstream)"'
+Restart=always
+RestartSec=2
+StandardOutput=append:__RS_HOME__/.config/shelley/remote-shelley/proxy.log
+StandardError=append:__RS_HOME__/.config/shelley/remote-shelley/proxy.log
+
+[Install]
+WantedBy=multi-user.target

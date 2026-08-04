@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# remote-shelley — operator CLI: swap this VM's Shelley port to a remote
+# Shelley (over Tailscale), keep it, or swap back.
+#
+#   remote-shelley swap <url>   # take over :9999 with a proxy to <url>
+#   remote-shelley keep         # cancel the auto-restore; stay on the remote
+#   remote-shelley off          # swap back to the local Shelley now
+#   remote-shelley status       # what's currently answering on :9999
+#
+# `swap` hands off to a DETACHED systemd unit (remote-shelley-swap.service),
+# because stopping the local Shelley kills the very agent process that may be
+# running this command. The detached unit stops shelley.socket+shelley.service,
+# starts the proxy, health-checks it, and arms an auto-restore timer.
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+CFG="$HERE/config.env"
+if [ ! -f "$CFG" ]; then
+  echo "remote-shelley: config not found at $CFG (run install.sh)" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+. "$CFG"
+
+UNIT=remote-shelley-swap
+RESTORE_TIMER=remote-shelley-restore
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  swap)
+    upstream="${1:-$REMOTE_SHELLY_UPSTREAM}"
+    case "$upstream" in
+      http://*|https://*) ;;
+      *) echo "remote-shelley: upstream must be an http(s) URL, got: $upstream" >&2; exit 1 ;;
+    esac
+    mkdir -p "$REMOTE_SHELLY_STATE_DIR"
+    echo "$upstream" > "$REMOTE_SHELLY_STATE_DIR/upstream"
+    sudo systemctl reset-failed "$UNIT.service" "$RESTORE_TIMER.timer" "$RESTORE_TIMER.service" 2>/dev/null || true
+    # A few seconds out so an interactive report can flush before we stop Shelley.
+    sudo systemd-run --collect --unit="$UNIT" --on-active=5s \
+      "$HERE/scripts/remote-shelley-swap.sh" "$upstream"
+    echo "remote-shelley: swap to $upstream scheduled ~5s out (detached unit $UNIT)."
+    echo "  Auto-restore to local Shelley in $REMOTE_SHELLY_GRACE unless you run:  remote-shelley keep"
+    echo "  Log: $REMOTE_SHELLY_STATE_DIR/swap.log"
+    ;;
+  keep)
+    sudo systemctl stop "$RESTORE_TIMER.timer" 2>/dev/null || true
+    sudo systemctl reset-failed "$RESTORE_TIMER.service" 2>/dev/null || true
+    echo "$(date -Is) KEEP: auto-restore cancelled" | sudo tee -a "$REMOTE_SHELLY_STATE_DIR/swap.log" >/dev/null
+    echo "remote-shelley: auto-restore cancelled; staying on the remote."
+    systemctl list-timers 'remote-shelley-*' --no-pager || true
+    ;;
+  off|restore)
+    sudo systemctl reset-failed remote-shelley-restore.service 2>/dev/null || true
+    sudo systemd-run --collect --unit=remote-shelley-manual-restore --on-active=3s \
+      "$HERE/scripts/remote-shelley-restore.sh"
+    echo "remote-shelley: restore to local Shelley scheduled ~3s out (detached)."
+    ;;
+  status)
+    echo "--- listeners on ${REMOTE_SHELLY_LISTEN##*:}:"
+    ss -tlnp 2>/dev/null | grep ":${REMOTE_SHELLY_LISTEN##*:} " || echo "  (nothing listening)"
+    echo "--- units:"
+    systemctl is-active remote-shelley.service "$SHELLEY_SOCKET_UNIT" "$SHELLEY_SERVICE_UNIT" 2>/dev/null | paste -sd' ' -
+    echo "--- last upstream: $(cat "$REMOTE_SHELLY_STATE_DIR/upstream" 2>/dev/null || echo none)"
+    echo "--- timers:"
+    systemctl list-timers 'remote-shelley-*' --no-pager 2>/dev/null || true
+    ;;
+  *)
+    echo "usage: remote-shelley {swap <url>|keep|off|status}" >&2
+    exit 1
+    ;;
+esac

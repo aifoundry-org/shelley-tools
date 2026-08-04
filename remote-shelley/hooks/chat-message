@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Shelley chat-message hook -> remote-shelley command dispatcher.
+exec python3 "$(dirname "$0")/command-dispatch.py"

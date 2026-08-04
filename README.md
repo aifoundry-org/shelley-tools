@@ -13,6 +13,7 @@ reaching resources outside its VM, etc.
 | [`rb/`](./rb) | Lets Shelley do **web research without getting CAPTCHA'd**: drives a real, visible, persistent Chrome **on the VM** over CDP, with a search/fetch CLI, automatic block detection, and a noVNC view so a human can take over and clear a challenge in the same session. |
 | [`cyclo/`](./cyclo) | Deploy and operate [Cyclo](https://github.com/glguida/cyclo) — Git-defined multi-agent teams in Docker — safely: bounded-retry runs, task confirmation, watching, cost accounting, run forensics, and teardown. |
 | [`hooks/`](./hooks) | Extensible **operator commands** for Shelley (`rebase`, `swap`, `keep`, `rollback`) via lifecycle hooks: type a command and Shelley expands it into a full task, e.g. rebasing a fork or hot-swapping the running binary with an auto-rollback safety net. |
+| [`remote-shelley/`](./remote-shelley) | Turn a VM into a pure **routing front-end for a remote Shelley** (e.g. on your own infra over Tailscale): one command swaps Shelley's port to a proxy for the remote instance, with a detached-systemd swap and an auto-restore safety net. |
 
 ## Installing a tool
 
