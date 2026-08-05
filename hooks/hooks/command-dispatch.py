@@ -114,7 +114,7 @@ Steps — be very careful, and stop to ask the user if anything is ambiguous:
      commit.
   8. Build and test — everything must pass:
        - `make build`  (builds UI + Go binary)
-       - `go test ./server`
+       - `go test ./...`  (matches GitHub Actions; catches compile failures in every package, including tests)
        - `cd ui && pnpm run type-check && pnpm run type-check:vue`
      If any build/test fails due to the rebase, investigate and fix if the
      fix is obvious and safe; otherwise STOP and ask the user.
